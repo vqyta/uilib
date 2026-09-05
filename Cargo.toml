@@ -1,0 +1,13 @@
+[package]
+name = "uilib"
+version = "0.0.5"
+edition = "2024"
+description = "A lightweight and highly customizable UI widget toolkit for Macroquad"
+license = "MIT"
+repository = "https://github.com/vqyta/uilib"
+readme = "README.md"
+keywords = ["ui", "macroquad", "gamedev", "gui"]
+categories = ["gui", "game-development"]
+
+[dependencies]
+macroquad = "0.4"
