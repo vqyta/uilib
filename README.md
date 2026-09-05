@@ -43,13 +43,7 @@ macroquad = "0.4"
 uilib = { git = "https://github.com/vqyta/uilib" }
 ```
 
-Or, if the crate is published on crates.io:
 
-```toml
-[dependencies]
-macroquad = "0.4"
-uilib
-```
 
 ---
 
