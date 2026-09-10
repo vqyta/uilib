@@ -5,8 +5,8 @@
 
 use macroquad::prelude::*;
 
-use uilibrary::widgets::button::{Button, ButtonStyle};
-use uilibrary::widgets::widget::Widget;
+use uilib::widgets::button::{Button, ButtonStyle};
+use uilib::widgets::widget::Widget;
 
 fn window_conf() -> Conf {
     Conf {
