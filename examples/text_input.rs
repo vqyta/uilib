@@ -6,8 +6,8 @@
 
 use macroquad::prelude::*;
 
-use uilibrary::widgets::input::{TextInput, TextInputStyle};
-use uilibrary::widgets::widget::Widget;
+use uilib::widgets::input::{TextInput, TextInputStyle};
+use uilib::widgets::widget::Widget;
 
 fn window_conf() -> Conf {
     Conf {
