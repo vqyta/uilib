@@ -5,8 +5,8 @@
 
 use macroquad::prelude::*;
 
-use uilibrary::widgets::slider::{Slider, SliderOrientation, SliderStyle};
-use uilibrary::widgets::widget::Widget;
+use uilib::widgets::slider::{Slider, SliderOrientation, SliderStyle};
+use uilib::widgets::widget::Widget;
 
 fn window_conf() -> Conf {
     Conf {
