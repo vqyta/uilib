@@ -1,12 +1,4 @@
 // src/widgets/slider.rs
-//
-// A draggable slider that behaves like a native range input:
-// click-and-drag the handle (or click anywhere on the track to jump
-// there and start dragging), arrow keys to nudge the value by one
-// step while focused (Right/Up increase, Left/Down decrease — same
-// mapping browsers use for <input type="range"> regardless of
-// orientation), Home/End to jump to the min/max, Page Up/Down for a
-// bigger jump, and mouse wheel to nudge while hovered.
 
 use macroquad::prelude::*;
 
@@ -30,7 +22,6 @@ pub enum SliderOrientation {
 #[derive(Clone)]
 pub struct SliderStyle {
     pub track_color: Color,
-    /// Colors the portion of the track between the start and the handle.
     pub fill_color: Color,
 
     pub handle_color: Color,
@@ -38,17 +29,12 @@ pub struct SliderStyle {
     pub handle_border_width: f32,
     pub handle_radius: f32,
 
-    /// Overall bounding box: length along the slide axis by thickness
-    /// across it (thickness also caps how tall/wide the track line is
-    /// drawn, independent of the handle radius).
     pub size: Vec2,
     pub track_thickness: f32,
 
     pub scale: Vec2,
     pub rotation: f32,
 
-    /// Reserved for rounded-rect track drawing; not yet applied by
-    /// `draw()`, kept for API parity with `ButtonStyle`/`TextInputStyle`.
     pub rounding: f32,
 }
 
@@ -138,18 +124,23 @@ impl Lerp for SliderStyle {
             fill_color: self.fill_color.lerp_towards(&other.fill_color, t),
 
             handle_color: self.handle_color.lerp_towards(&other.handle_color, t),
+
             handle_border_color: self
                 .handle_border_color
                 .lerp_towards(&other.handle_border_color, t),
+
             handle_border_width: self
                 .handle_border_width
                 .lerp_towards(&other.handle_border_width, t),
+
             handle_radius: self.handle_radius.lerp_towards(&other.handle_radius, t),
 
             size: self.size.lerp_towards(&other.size, t),
+
             track_thickness: self.track_thickness.lerp_towards(&other.track_thickness, t),
 
             scale: self.scale.lerp_towards(&other.scale, t),
+
             rotation: self.rotation.lerp_towards(&other.rotation, t),
 
             rounding: self.rounding.lerp_towards(&other.rounding, t),
@@ -175,15 +166,12 @@ pub struct Slider {
     min: f32,
     max: f32,
     value: f32,
-    /// Snaps the value to multiples of `step` away from `min`.
-    /// `0.0` means continuous (no snapping).
     step: f32,
 
     orientation: SliderOrientation,
 
     dragging: bool,
     is_focused: bool,
-    /// True for the frame the value last changed.
     changed: bool,
 
     speed: f32,
@@ -297,7 +285,6 @@ impl Slider {
         self.value
     }
 
-    /// True for the single frame the value last changed.
     pub fn changed(&self) -> bool {
         self.changed
     }
@@ -311,7 +298,7 @@ impl Slider {
     }
 
     // ========================================================
-    // FOCUS / VALUE CONTROL
+    // FOCUS / VALUE
     // ========================================================
 
     pub fn focus(&mut self) {
@@ -329,6 +316,7 @@ impl Slider {
         } else {
             value
         };
+
         let clamped = stepped.clamp(self.min, self.max);
 
         if (clamped - self.value).abs() > f32::EPSILON {
@@ -352,7 +340,7 @@ impl Slider {
     }
 
     // ========================================================
-    // GEOMETRY / VALUE MAPPING
+    // VALUE MAPPING
     // ========================================================
 
     fn normalized(&self) -> f32 {
@@ -363,43 +351,56 @@ impl Slider {
         }
     }
 
-    /// Center of the handle in screen space for the current value.
+    /// Handle position in VIRTUAL coordinates.
     fn handle_center(&self) -> Vec2 {
         let style = &self.current;
         let size = style.size * style.scale;
+        let radius = style.handle_radius;
         let t = self.normalized();
 
         match self.orientation {
             SliderOrientation::Horizontal => {
-                let start_x = self.position.x - size.x * 0.5 + style.handle_radius;
-                let usable = (size.x - style.handle_radius * 2.0).max(1.0);
+                let start_x = self.position.x - size.x * 0.5 + radius;
+
+                let usable = (size.x - radius * 2.0).max(1.0);
+
                 vec2(start_x + usable * t, self.position.y)
             }
+
             SliderOrientation::Vertical => {
-                // Top of the track is `max`, bottom is `min` — matches
-                // the usual vertical-slider convention (e.g. volume).
-                let start_y = self.position.y - size.y * 0.5 + style.handle_radius;
-                let usable = (size.y - style.handle_radius * 2.0).max(1.0);
+                let start_y = self.position.y - size.y * 0.5 + radius;
+
+                let usable = (size.y - radius * 2.0).max(1.0);
+
                 vec2(self.position.x, start_y + usable * (1.0 - t))
             }
         }
     }
 
+    /// Converts the real mouse position into a slider value.
+    ///
+    /// `Widget::virtual_mouse_position()` handles the actual
+    /// screen -> virtual-resolution conversion.
     fn value_from_mouse(&self) -> f32 {
         let style = &self.current;
         let size = style.size * style.scale;
-        let (mouse_x, mouse_y) = mouse_position();
+        let mouse = self.virtual_mouse_position();
 
         let t = match self.orientation {
             SliderOrientation::Horizontal => {
                 let start_x = self.position.x - size.x * 0.5 + style.handle_radius;
+
                 let usable = (size.x - style.handle_radius * 2.0).max(1.0);
-                ((mouse_x - start_x) / usable).clamp(0.0, 1.0)
+
+                ((mouse.x - start_x) / usable).clamp(0.0, 1.0)
             }
+
             SliderOrientation::Vertical => {
                 let start_y = self.position.y - size.y * 0.5 + style.handle_radius;
+
                 let usable = (size.y - style.handle_radius * 2.0).max(1.0);
-                1.0 - ((mouse_y - start_y) / usable).clamp(0.0, 1.0)
+
+                1.0 - ((mouse.y - start_y) / usable).clamp(0.0, 1.0)
             }
         };
 
@@ -412,11 +413,12 @@ impl Slider {
         } else {
             (self.max - self.min) * 0.01
         };
+
         self.set_value(self.value + steps * unit);
     }
 
     // ========================================================
-    // INPUT HANDLING
+    // INPUT
     // ========================================================
 
     fn handle_pointer(&mut self) {
@@ -428,8 +430,9 @@ impl Slider {
             if self.mouse_inside() {
                 self.focus();
                 self.dragging = true;
-                let v = self.value_from_mouse();
-                self.set_value(v);
+
+                let value = self.value_from_mouse();
+                self.set_value(value);
             } else {
                 self.unfocus();
             }
@@ -437,8 +440,8 @@ impl Slider {
 
         if self.dragging {
             if is_mouse_button_down(MouseButton::Left) {
-                let v = self.value_from_mouse();
-                self.set_value(v);
+                let value = self.value_from_mouse();
+                self.set_value(value);
             } else {
                 self.dragging = false;
             }
@@ -450,24 +453,26 @@ impl Slider {
             return;
         }
 
-        // Right/Up increase, Left/Down decrease — the same mapping
-        // browsers use for <input type="range">, regardless of
-        // whether the slider is drawn horizontally or vertically.
         if is_key_pressed(KeyCode::Right) || is_key_pressed(KeyCode::Up) {
             self.nudge(1.0);
         }
+
         if is_key_pressed(KeyCode::Left) || is_key_pressed(KeyCode::Down) {
             self.nudge(-1.0);
         }
+
         if is_key_pressed(KeyCode::PageUp) {
             self.nudge(10.0);
         }
+
         if is_key_pressed(KeyCode::PageDown) {
             self.nudge(-10.0);
         }
+
         if is_key_pressed(KeyCode::Home) {
             self.set_value(self.min);
         }
+
         if is_key_pressed(KeyCode::End) {
             self.set_value(self.max);
         }
@@ -479,6 +484,7 @@ impl Slider {
         }
 
         let (_, wheel_y) = mouse_wheel();
+
         if wheel_y != 0.0 {
             self.nudge(wheel_y.signum());
         }
@@ -486,7 +492,7 @@ impl Slider {
 }
 
 // ============================================================
-// WIDGET IMPL
+// WIDGET IMPLEMENTATION
 // ============================================================
 
 impl Widget for Slider {
@@ -528,27 +534,64 @@ impl Widget for Slider {
 
         let dt = get_frame_time();
         let t = smoothing_factor(self.speed, dt);
+
         let target = self.target_style().clone();
+
         self.current = self.current.lerp_towards(&target, t);
     }
 
     fn draw(&self) {
+        let virtual_resolution = self.virtual_resolution();
+        let viewport = virtual_resolution.viewport();
+        let screen_scale = virtual_resolution.scale();
+
         let style = &self.current;
+
+        // ----------------------------------------------------
+        // VIRTUAL GEOMETRY
+        // ----------------------------------------------------
+
         let size = style.size * style.scale;
         let handle = self.handle_center();
 
-        match self.orientation {
-            SliderOrientation::Horizontal => {
-                let track_y = self.position.y;
-                let track_left = self.position.x - size.x * 0.5 + style.handle_radius;
-                let track_right = self.position.x + size.x * 0.5 - style.handle_radius;
+        let handle_radius = style.handle_radius;
+        let track_thickness = style.track_thickness;
 
-                // Background track.
+        // Convert virtual coordinates to real screen coordinates.
+        let center = vec2(
+            viewport.x + self.position.x * screen_scale,
+            viewport.y + self.position.y * screen_scale,
+        );
+
+        let handle_screen = vec2(
+            viewport.x + handle.x * screen_scale,
+            viewport.y + handle.y * screen_scale,
+        );
+
+        let radius = handle_radius * screen_scale;
+        let thickness = track_thickness * screen_scale;
+
+        match self.orientation {
+            // =================================================
+            // HORIZONTAL
+            // =================================================
+            SliderOrientation::Horizontal => {
+                let start_x = self.position.x - size.x * 0.5 + handle_radius;
+
+                let end_x = self.position.x + size.x * 0.5 - handle_radius;
+
+                let start_screen_x = viewport.x + start_x * screen_scale;
+
+                let end_screen_x = viewport.x + end_x * screen_scale;
+
+                let track_width = (end_screen_x - start_screen_x).max(1.0);
+
+                // Track.
                 draw_rectangle_ex(
-                    self.position.x,
-                    track_y,
-                    track_right - track_left,
-                    style.track_thickness,
+                    (start_screen_x + end_screen_x) * 0.5,
+                    center.y,
+                    track_width,
+                    thickness,
                     DrawRectangleParams {
                         color: style.track_color,
                         rotation: style.rotation,
@@ -556,14 +599,15 @@ impl Widget for Slider {
                     },
                 );
 
-                // Filled portion up to the handle.
-                let fill_width = (handle.x - track_left).max(0.0);
+                // Filled track.
+                let fill_width = (handle_screen.x - start_screen_x).max(0.0);
+
                 if fill_width > 0.0 {
                     draw_rectangle_ex(
-                        track_left + fill_width * 0.5,
-                        track_y,
+                        start_screen_x + fill_width * 0.5,
+                        center.y,
                         fill_width,
-                        style.track_thickness,
+                        thickness,
                         DrawRectangleParams {
                             color: style.fill_color,
                             rotation: style.rotation,
@@ -572,16 +616,27 @@ impl Widget for Slider {
                     );
                 }
             }
-            SliderOrientation::Vertical => {
-                let track_x = self.position.x;
-                let track_top = self.position.y - size.y * 0.5 + style.handle_radius;
-                let track_bottom = self.position.y + size.y * 0.5 - style.handle_radius;
 
+            // =================================================
+            // VERTICAL
+            // =================================================
+            SliderOrientation::Vertical => {
+                let start_y = self.position.y - size.y * 0.5 + handle_radius;
+
+                let end_y = self.position.y + size.y * 0.5 - handle_radius;
+
+                let start_screen_y = viewport.y + start_y * screen_scale;
+
+                let end_screen_y = viewport.y + end_y * screen_scale;
+
+                let track_height = (end_screen_y - start_screen_y).max(1.0);
+
+                // Track.
                 draw_rectangle_ex(
-                    track_x,
-                    self.position.y,
-                    style.track_thickness,
-                    track_bottom - track_top,
+                    center.x,
+                    (start_screen_y + end_screen_y) * 0.5,
+                    thickness,
+                    track_height,
                     DrawRectangleParams {
                         color: style.track_color,
                         rotation: style.rotation,
@@ -589,15 +644,14 @@ impl Widget for Slider {
                     },
                 );
 
-                // Filled portion from the handle down to the bottom
-                // (bottom = min, so the fill grows upward as the value
-                // increases — matches the top-is-max convention above).
-                let fill_height = (track_bottom - handle.y).max(0.0);
+                // Filled track.
+                let fill_height = (end_screen_y - handle_screen.y).max(0.0);
+
                 if fill_height > 0.0 {
                     draw_rectangle_ex(
-                        track_x,
-                        track_bottom - fill_height * 0.5,
-                        style.track_thickness,
+                        center.x,
+                        end_screen_y - fill_height * 0.5,
+                        thickness,
                         fill_height,
                         DrawRectangleParams {
                             color: style.fill_color,
@@ -609,14 +663,18 @@ impl Widget for Slider {
             }
         }
 
-        // Handle.
-        draw_circle(handle.x, handle.y, style.handle_radius, style.handle_color);
+        // ----------------------------------------------------
+        // HANDLE
+        // ----------------------------------------------------
+
+        draw_circle(handle_screen.x, handle_screen.y, radius, style.handle_color);
+
         if style.handle_border_width > 0.0 {
             draw_circle_lines(
-                handle.x,
-                handle.y,
-                style.handle_radius,
-                style.handle_border_width,
+                handle_screen.x,
+                handle_screen.y,
+                radius,
+                style.handle_border_width * screen_scale,
                 style.handle_border_color,
             );
         }

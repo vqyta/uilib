@@ -1,15 +1,4 @@
 // src/widgets/input.rs
-//
-// A single-line text input that behaves the way a native text field
-// does: click to focus and place the caret, drag to select, type to
-// insert, Backspace/Delete to remove, arrow keys (+ Shift) to move
-// the caret and extend the selection, Home/End to jump to the edges,
-// Ctrl+A/C/X/V for select-all/copy/cut/paste, Enter to submit, and a
-// blinking caret while focused. Text scrolls horizontally so the
-// caret always stays visible once it outgrows the box.
-//
-// It does not clip overflowing text against the box edges — see the
-// note above `draw()` if you need that.
 
 use macroquad::prelude::*;
 
@@ -40,7 +29,6 @@ pub struct TextInputStyle {
 
     pub rounding: f32,
 
-    /// Horizontal inset between the box edge and the text.
     pub padding: f32,
 }
 
@@ -157,13 +145,12 @@ impl Lerp for TextInputStyle {
             scale: self.scale.lerp_towards(&other.scale, t),
             rotation: self.rotation.lerp_towards(&other.rotation, t),
 
-            // Fonts can't be blended — snap once we're past the halfway
-            // point, same convention as ButtonStyle.
             font: if t > 0.5 {
                 other.font.clone()
             } else {
                 self.font.clone()
             },
+
             font_size: if t > 0.5 {
                 other.font_size
             } else {
@@ -183,7 +170,7 @@ impl Lerp for TextInputStyle {
 // TEXT INPUT
 // ============================================================
 
-const BLINK_PERIOD: f32 = 1.0; // seconds for a full on/off cycle
+const BLINK_PERIOD: f32 = 1.0;
 
 pub struct TextInput {
     text: String,
@@ -197,17 +184,13 @@ pub struct TextInput {
 
     current: TextInputStyle,
 
-    /// Caret position, in *characters* (not bytes) from the start of `text`.
     cursor: usize,
-    /// Other end of the selection, if any is active. `None` means no selection.
     selection_anchor: Option<usize>,
 
     is_focused: bool,
     dragging: bool,
 
-    /// True for the frame after the text changed (typed, pasted, deleted...).
     changed: bool,
-    /// True for the frame Enter was pressed while focused.
     submitted: bool,
 
     blink_timer: f32,
@@ -283,8 +266,6 @@ impl TextInput {
         self
     }
 
-    /// Sets the font on every state style at once (see `Button::font`
-    /// for why this exists instead of setting it per-style).
     pub fn font(mut self, font: Font) -> Self {
         self.normal.font = Some(font.clone());
         self.hover.font = Some(font.clone());
@@ -312,14 +293,12 @@ impl TextInput {
         self
     }
 
-    /// Sets the initial text content.
     pub fn value(mut self, text: impl Into<String>) -> Self {
         self.text = text.into();
         self.cursor = self.text.chars().count();
         self
     }
 
-    /// Caps the number of characters that can be typed or pasted in.
     pub fn max_len(mut self, max_len: usize) -> Self {
         self.max_len = Some(max_len);
         self
@@ -348,12 +327,10 @@ impl TextInput {
         &self.text
     }
 
-    /// True for the single frame after the text changed.
     pub fn changed(&self) -> bool {
         self.changed
     }
 
-    /// True for the single frame Enter was pressed while focused.
     pub fn submitted(&self) -> bool {
         self.submitted
     }
@@ -363,7 +340,7 @@ impl TextInput {
     }
 
     // ========================================================
-    // FOCUS CONTROL
+    // FOCUS
     // ========================================================
 
     pub fn focus(&mut self) {
@@ -389,7 +366,7 @@ impl TextInput {
     }
 
     // ========================================================
-    // TARGET STYLE
+    // STYLE
     // ========================================================
 
     fn target_style(&self) -> &TextInputStyle {
@@ -397,15 +374,13 @@ impl TextInput {
             WidgetState::Normal => &self.normal,
             WidgetState::Hover => &self.hover,
             WidgetState::Focused => &self.focused,
-            // TextInput has no "held down" look distinct from focused;
-            // fall back to normal so the match stays exhaustive.
             WidgetState::Pressed => &self.normal,
             WidgetState::Disabled => &self.disabled,
         }
     }
 
     // ========================================================
-    // TEXT / CURSOR HELPERS
+    // TEXT HELPERS
     // ========================================================
 
     fn char_count(&self) -> usize {
@@ -430,8 +405,13 @@ impl TextInput {
         })
     }
 
+    fn scaled_font_size(&self, scale: f32) -> u16 {
+        ((self.current.font_size as f32) * scale).round().max(1.0) as u16
+    }
+
     fn text_width(&self, up_to_char: usize) -> f32 {
         let byte_idx = self.byte_offset(up_to_char);
+
         measure_text(
             &self.text[..byte_idx],
             self.current.font.as_ref(),
@@ -441,10 +421,9 @@ impl TextInput {
         .width
     }
 
-    /// Maps a horizontal offset (relative to the start of the text, in
-    /// the same units as `text_width`) to the nearest character index.
     fn char_index_for_x(&self, x: f32) -> usize {
         let len = self.char_count();
+
         if len == 0 {
             return 0;
         }
@@ -453,8 +432,9 @@ impl TextInput {
         let mut best_dist = f32::MAX;
 
         for idx in 0..=len {
-            let w = self.text_width(idx);
-            let dist = (w - x).abs();
+            let width = self.text_width(idx);
+            let dist = (width - x).abs();
+
             if dist < best_dist {
                 best_dist = dist;
                 best_idx = idx;
@@ -464,24 +444,31 @@ impl TextInput {
         best_idx
     }
 
+    /// Mouse coordinates are converted from real screen space into
+    /// the library's 600x360 virtual coordinate space.
     fn cursor_index_for_mouse(&self) -> usize {
-        let (mouse_x, _) = mouse_position();
+        let mouse = self.virtual_mouse_position();
+
         let box_left = self.position.x - self.current.size.x * 0.5;
         let text_start_x = box_left + self.current.padding;
-        let local_x = (mouse_x - text_start_x + self.scroll_x).max(0.0);
+
+        let local_x = (mouse.x - text_start_x + self.scroll_x).max(0.0);
+
         self.char_index_for_x(local_x)
     }
 
-    // ------------------------------------------------------------
-    // Editing
-    // ------------------------------------------------------------
+    // ========================================================
+    // EDITING
+    // ========================================================
 
     fn replace_selection_or_cursor_with(&mut self, insert: &str) {
         let (start, end) = self.selection_range().unwrap_or((self.cursor, self.cursor));
+
         let start_b = self.byte_offset(start);
         let end_b = self.byte_offset(end);
 
         self.text.replace_range(start_b..end_b, insert);
+
         self.cursor = start + insert.chars().count();
         self.selection_anchor = None;
 
@@ -492,10 +479,12 @@ impl TextInput {
     fn insert_char(&mut self, c: char) {
         if let Some(max) = self.max_len {
             let selecting = self.selection_anchor.is_some();
+
             if self.char_count() >= max && !selecting {
                 return;
             }
         }
+
         self.replace_selection_or_cursor_with(&c.to_string());
     }
 
@@ -504,12 +493,16 @@ impl TextInput {
             self.replace_selection_or_cursor_with("");
             return;
         }
+
         if self.cursor == 0 {
             return;
         }
+
         let start_b = self.byte_offset(self.cursor - 1);
         let end_b = self.byte_offset(self.cursor);
+
         self.text.replace_range(start_b..end_b, "");
+
         self.cursor -= 1;
         self.changed = true;
         self.blink_timer = 0.0;
@@ -520,12 +513,16 @@ impl TextInput {
             self.replace_selection_or_cursor_with("");
             return;
         }
+
         if self.cursor >= self.char_count() {
             return;
         }
+
         let start_b = self.byte_offset(self.cursor);
         let end_b = self.byte_offset(self.cursor + 1);
+
         self.text.replace_range(start_b..end_b, "");
+
         self.changed = true;
         self.blink_timer = 0.0;
     }
@@ -533,22 +530,27 @@ impl TextInput {
     fn move_cursor(&mut self, delta: isize, shift: bool) {
         if !shift && self.selection_anchor.is_some() {
             let (start, end) = self.selection_range().unwrap();
+
             self.cursor = if delta < 0 { start } else { end };
+
             self.selection_anchor = None;
             self.blink_timer = 0.0;
+
             return;
         }
 
         if shift && self.selection_anchor.is_none() {
             self.selection_anchor = Some(self.cursor);
         }
+
         if !shift {
             self.selection_anchor = None;
         }
 
         let len = self.char_count() as isize;
-        let new_cursor = (self.cursor as isize + delta).clamp(0, len);
-        self.cursor = new_cursor as usize;
+
+        self.cursor = (self.cursor as isize + delta).clamp(0, len) as usize;
+
         self.blink_timer = 0.0;
     }
 
@@ -558,15 +560,18 @@ impl TextInput {
         } else if !shift {
             self.selection_anchor = None;
         }
+
         self.cursor = idx.min(self.char_count());
         self.blink_timer = 0.0;
     }
 
     fn select_all(&mut self) {
         let len = self.char_count();
+
         if len == 0 {
             return;
         }
+
         self.selection_anchor = Some(0);
         self.cursor = len;
     }
@@ -575,6 +580,7 @@ impl TextInput {
         self.selection_range().map(|(start, end)| {
             let start_b = self.byte_offset(start);
             let end_b = self.byte_offset(end);
+
             self.text[start_b..end_b].to_string()
         })
     }
@@ -595,9 +601,18 @@ impl TextInput {
     fn paste_clipboard(&mut self) {
         if let Some(mut text) = miniquad::window::clipboard_get() {
             text.retain(|c| !c.is_control() || c == ' ');
+
             if let Some(max) = self.max_len {
-                let remaining = max.saturating_sub(self.char_count());
+                let current_without_selection = self.char_count().saturating_sub(
+                    self.selection_range()
+                        .map(|(a, b)| b.saturating_sub(a))
+                        .unwrap_or(0),
+                );
+
+                let remaining = max.saturating_sub(current_without_selection);
+
                 let allowed: String = text.chars().take(remaining).collect();
+
                 if !allowed.is_empty() {
                     self.replace_selection_or_cursor_with(&allowed);
                 }
@@ -607,9 +622,9 @@ impl TextInput {
         }
     }
 
-    // ------------------------------------------------------------
-    // Input handling
-    // ------------------------------------------------------------
+    // ========================================================
+    // INPUT
+    // ========================================================
 
     fn handle_pointer(&mut self) {
         if !self.enabled {
@@ -619,8 +634,11 @@ impl TextInput {
         if is_mouse_button_pressed(MouseButton::Left) {
             if self.mouse_inside() {
                 self.focus();
+
                 self.dragging = true;
+
                 let idx = self.cursor_index_for_mouse();
+
                 self.cursor = idx;
                 self.selection_anchor = Some(idx);
             } else {
@@ -633,6 +651,7 @@ impl TextInput {
                 self.cursor = self.cursor_index_for_mouse();
             } else {
                 self.dragging = false;
+
                 if self.selection_anchor == Some(self.cursor) {
                     self.selection_anchor = None;
                 }
@@ -649,6 +668,7 @@ impl TextInput {
             || is_key_down(KeyCode::RightControl)
             || is_key_down(KeyCode::LeftSuper)
             || is_key_down(KeyCode::RightSuper);
+
         let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
 
         if ctrl && is_key_pressed(KeyCode::A) {
@@ -661,35 +681,38 @@ impl TextInput {
             self.paste_clipboard();
         }
 
-        // Typed characters. macroquad queues one `char_pressed` event
-        // per character per frame; drain it fully in case several
-        // arrived (e.g. fast typing, IME input).
         while let Some(c) = get_char_pressed() {
             if ctrl || c.is_control() {
                 continue;
             }
+
             self.insert_char(c);
         }
 
         if is_key_pressed(KeyCode::Backspace) {
             self.backspace();
         }
+
         if is_key_pressed(KeyCode::Delete) {
             self.delete_forward();
         }
+
         if is_key_pressed(KeyCode::Left) {
             self.move_cursor(-1, shift);
         }
+
         if is_key_pressed(KeyCode::Right) {
             self.move_cursor(1, shift);
         }
+
         if is_key_pressed(KeyCode::Home) {
             self.move_cursor_to(0, shift);
         }
+
         if is_key_pressed(KeyCode::End) {
-            let len = self.char_count();
-            self.move_cursor_to(len, shift);
+            self.move_cursor_to(self.char_count(), shift);
         }
+
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::KpEnter) {
             self.submitted = true;
         }
@@ -697,20 +720,23 @@ impl TextInput {
 
     fn update_scroll(&mut self) {
         let visible_width = (self.current.size.x - self.current.padding * 2.0).max(0.0);
+
         let cursor_x = self.text_width(self.cursor);
 
         if cursor_x - self.scroll_x > visible_width {
             self.scroll_x = cursor_x - visible_width;
         }
+
         if cursor_x - self.scroll_x < 0.0 {
             self.scroll_x = cursor_x;
         }
+
         self.scroll_x = self.scroll_x.max(0.0);
     }
 }
 
 // ============================================================
-// WIDGET IMPL
+// WIDGET
 // ============================================================
 
 impl Widget for TextInput {
@@ -755,15 +781,34 @@ impl Widget for TextInput {
 
         let dt = get_frame_time();
         let t = smoothing_factor(self.speed, dt);
+
         let target = self.target_style().clone();
+
         self.current = self.current.lerp_towards(&target, t);
     }
 
     fn draw(&self) {
+        let virtual_resolution = self.virtual_resolution();
+        let viewport = virtual_resolution.viewport();
+        let scale = virtual_resolution.scale();
+
         let style = &self.current;
 
-        let size = style.size * style.scale;
-        let center = self.position;
+        // ----------------------------------------------------
+        // VIRTUAL -> SCREEN
+        // ----------------------------------------------------
+
+        let size = style.size * style.scale * scale;
+
+        let center = vec2(
+            viewport.x + self.position.x * scale,
+            viewport.y + self.position.y * scale,
+        );
+
+        let border_width = style.border_width * scale;
+        let padding = style.padding * scale;
+
+        let font_size = self.scaled_font_size(scale);
 
         // ----------------------------------------------------
         // BACKGROUND
@@ -781,13 +826,13 @@ impl Widget for TextInput {
             },
         );
 
-        if style.border_width > 0.0 {
+        if border_width > 0.0 {
             draw_rectangle_lines_ex(
                 center.x,
                 center.y,
                 size.x,
                 size.y,
-                style.border_width,
+                border_width,
                 DrawRectangleParams {
                     color: style.border_color,
                     rotation: style.rotation,
@@ -797,33 +842,36 @@ impl Widget for TextInput {
         }
 
         // ----------------------------------------------------
-        // TEXT AREA
+        // TEXT
         // ----------------------------------------------------
-        //
-        // NOTE: this does not clip against the box edges — text that
-        // outgrows the visible width will scroll (via `scroll_x`) but
-        // may still draw a sliver past the border on the frame it
-        // catches up. Add a scissor/render-target clip here if that
-        // matters for your use case.
 
         let box_left = center.x - size.x * 0.5;
-        let text_start_x = box_left + style.padding - self.scroll_x;
+        let text_start_x = box_left + padding - self.scroll_x * scale;
 
-        let line_height = measure_text("Hg", style.font.as_ref(), style.font_size, 1.0).height;
+        let line_height = measure_text("Hg", style.font.as_ref(), font_size, 1.0).height;
+
         let text_y = center.y + line_height * 0.5;
 
-        // Selection highlight, drawn behind the text.
+        // ----------------------------------------------------
+        // SELECTION
+        // ----------------------------------------------------
+
         if let Some((start, end)) = self.selection_range() {
-            let x0 = text_start_x + self.text_width(start);
-            let x1 = text_start_x + self.text_width(end);
+            let x0 = text_start_x + self.text_width(start) * scale;
+            let x1 = text_start_x + self.text_width(end) * scale;
+
             draw_rectangle(
                 x0,
-                center.y - size.y * 0.5 + style.border_width,
-                (x1 - x0).max(1.0),
-                size.y - style.border_width * 2.0,
+                center.y - size.y * 0.5 + border_width,
+                (x1 - x0).max(scale),
+                size.y - border_width * 2.0,
                 style.selection_color,
             );
         }
+
+        // ----------------------------------------------------
+        // TEXT / PLACEHOLDER
+        // ----------------------------------------------------
 
         if self.text.is_empty() && !self.is_focused {
             draw_text_ex(
@@ -832,7 +880,7 @@ impl Widget for TextInput {
                 text_y,
                 TextParams {
                     font: style.font.as_ref(),
-                    font_size: style.font_size,
+                    font_size,
                     font_scale: 1.0,
                     color: style.placeholder_color,
                     rotation: style.rotation,
@@ -846,7 +894,7 @@ impl Widget for TextInput {
                 text_y,
                 TextParams {
                     font: style.font.as_ref(),
-                    font_size: style.font_size,
+                    font_size,
                     font_scale: 1.0,
                     color: style.text_color,
                     rotation: style.rotation,
@@ -855,13 +903,17 @@ impl Widget for TextInput {
             );
         }
 
-        // Blinking caret.
+        // ----------------------------------------------------
+        // CARET
+        // ----------------------------------------------------
+
         if self.is_focused && self.blink_timer < BLINK_PERIOD * 0.5 {
-            let caret_x = text_start_x + self.text_width(self.cursor);
+            let caret_x = text_start_x + self.text_width(self.cursor) * scale;
+
             draw_rectangle(
                 caret_x,
                 center.y - line_height * 0.5,
-                1.5,
+                1.5 * scale,
                 line_height,
                 style.cursor_color,
             );

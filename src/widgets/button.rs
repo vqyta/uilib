@@ -1,9 +1,7 @@
-// src/widgets/button.rs
-
 use macroquad::prelude::*;
 
 use crate::anim::{Lerp, smoothing_factor};
-use crate::widgets::widget::{Widget, WidgetState};
+use crate::widgets::widget::{VirtualResolution, Widget, WidgetState};
 
 // ============================================================
 // BUTTON STYLE
@@ -102,9 +100,6 @@ impl ButtonStyle {
     }
 }
 
-// A style knows how to blend into another style — this is what lets
-// `Button::update` collapse into a single line instead of one
-// `lerp_*` call per field.
 impl Lerp for ButtonStyle {
     fn lerp_towards(&self, other: &Self, t: f32) -> Self {
         Self {
@@ -116,13 +111,12 @@ impl Lerp for ButtonStyle {
 
             rotation: self.rotation.lerp_towards(&other.rotation, t),
 
-            // Fonts can't be blended — snap once we're past the halfway
-            // point, matching the previous behaviour.
             font: if t > 0.5 {
                 other.font.clone()
             } else {
                 self.font.clone()
             },
+
             font_size: if t > 0.5 {
                 other.font_size
             } else {
@@ -130,6 +124,7 @@ impl Lerp for ButtonStyle {
             },
 
             border_color: self.border_color.lerp_towards(&other.border_color, t),
+
             border_width: self.border_width.lerp_towards(&other.border_width, t),
 
             rounding: self.rounding.lerp_towards(&other.rounding, t),
@@ -157,10 +152,6 @@ pub struct Button {
 }
 
 impl Button {
-    // ========================================================
-    // CONSTRUCTOR
-    // ========================================================
-
     pub fn new(text: impl Into<String>, position: Vec2) -> Self {
         let normal = ButtonStyle::default();
 
@@ -227,35 +218,24 @@ impl Button {
     // ========================================================
     // FONT
     // ========================================================
-    //
-    // Per-state styles each carry their own `font`, so it's possible
-    // to set a custom font on `.normal()` and leave `.hover()` etc. at
-    // their default (`font: None`) — the button would then flicker
-    // back to the built-in font whenever it's hovered or pressed.
-    // `.font()` / `.font_size()` apply the value to every state style
-    // at once, which is what you want the vast majority of the time.
-    // Call `.normal(...)` etc. afterwards if you need a *different*
-    // font for a specific state.
 
-    /// Sets a custom font on every state style (normal, hover, pressed,
-    /// disabled) at once, so the button doesn't snap back to the
-    /// built-in font when its state changes.
     pub fn font(mut self, font: Font) -> Self {
         self.normal.font = Some(font.clone());
         self.hover.font = Some(font.clone());
         self.pressed.font = Some(font.clone());
         self.disabled.font = Some(font.clone());
         self.current.font = Some(font);
+
         self
     }
 
-    /// Sets the font size on every state style at once.
     pub fn font_size(mut self, font_size: u16) -> Self {
         self.normal.font_size = font_size;
         self.hover.font_size = font_size;
         self.pressed.font_size = font_size;
         self.disabled.font_size = font_size;
         self.current.font_size = font_size;
+
         self
     }
 
@@ -269,20 +249,23 @@ impl Button {
             WidgetState::Hover => &self.hover,
             WidgetState::Pressed => &self.pressed,
             WidgetState::Disabled => &self.disabled,
-            // Buttons never produce this state (they don't override
-            // `Widget::state()`), but the match must stay exhaustive.
             WidgetState::Focused => &self.normal,
         }
     }
 }
 
 // ============================================================
-// WIDGET IMPL
+// WIDGET
 // ============================================================
 
 impl Widget for Button {
     fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// All button coordinates live in virtual space.
+    fn virtual_resolution(&self) -> VirtualResolution {
+        VirtualResolution::default()
     }
 
     fn hitbox(&self) -> Rect {
@@ -301,14 +284,26 @@ impl Widget for Button {
         let t = smoothing_factor(self.speed, dt);
 
         let target = self.target_style().clone();
+
         self.current = self.current.lerp_towards(&target, t);
     }
 
     fn draw(&self) {
         let style = &self.current;
 
-        let size = style.size * style.scale;
-        let center = self.position;
+        let virtual_resolution = self.virtual_resolution();
+
+        let scale = virtual_resolution.scale();
+
+        let viewport = virtual_resolution.viewport();
+
+        // Convert virtual coordinates to real screen coordinates.
+        let center = vec2(
+            viewport.x + self.position.x * scale,
+            viewport.y + self.position.y * scale,
+        );
+
+        let size = style.size * style.scale * scale;
 
         // ----------------------------------------------------
         // BACKGROUND
@@ -336,7 +331,7 @@ impl Widget for Button {
                 center.y,
                 size.x,
                 size.y,
-                style.border_width,
+                style.border_width * scale,
                 DrawRectangleParams {
                     color: style.border_color,
                     rotation: style.rotation,
@@ -349,9 +344,12 @@ impl Widget for Button {
         // TEXT
         // ----------------------------------------------------
 
+        let font_size = (style.font_size as f32 * scale).round().max(1.0) as u16;
+
         let dimensions = match &style.font {
-            Some(font) => measure_text(&self.text, Some(font), style.font_size, 1.0),
-            None => measure_text(&self.text, None, style.font_size, 1.0),
+            Some(font) => measure_text(&self.text, Some(font), font_size, 1.0),
+
+            None => measure_text(&self.text, None, font_size, 1.0),
         };
 
         let text_x = center.x - dimensions.width * 0.5;
@@ -363,7 +361,7 @@ impl Widget for Button {
             text_y,
             TextParams {
                 font: style.font.as_ref(),
-                font_size: style.font_size,
+                font_size,
                 font_scale: 1.0,
                 color: style.text_color,
                 rotation: style.rotation,

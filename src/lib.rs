@@ -26,4 +26,4 @@ pub use anim::Lerp;
 pub use widgets::button::{Button, ButtonStyle};
 pub use widgets::input::{TextInput, TextInputStyle};
 pub use widgets::slider::{Slider, SliderOrientation, SliderStyle};
-pub use widgets::widget::{Widget, WidgetState};
+pub use widgets::widget::{VirtualResolution, Widget, WidgetState};
